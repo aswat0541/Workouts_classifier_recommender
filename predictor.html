@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Workout Type Classifier</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; max-width: 1000px; margin: auto; padding: 20px; background: #f0f4f8; }
+        .container { background: white; padding: 30px; border-radius: 15px; }
+        h1 { color: #1e3c72; text-align: center; }
+        .form-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; }
+        .form-group { flex: 1; min-width: 180px; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
+        button { background: #2a5298; color: white; padding: 12px; width: 100%; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin-top: 15px; }
+        button:hover { background: #1e3c72; }
+        .result { margin-top: 20px; padding: 20px; border-radius: 12px; text-align: center; font-size: 1.5rem; font-weight: bold; }
+        .workout-Cardio { background: #d4edda; color: #155724; }
+        .workout-HIIT { background: #fff3cd; color: #856404; }
+        .workout-Strength { background: #d1ecf1; color: #0c5460; }
+        .workout-Yoga { background: #e2d5f0; color: #4a235a; }
+        .recommendations { margin-top: 20px; padding: 15px; border-radius: 12px; background: #f8f9fa; }
+        footer { text-align: center; margin-top: 20px; color: #666; }
+        .error { color: red; }
+    </style>
+    <script src="tree_rules.js"></script>
+</head>
+<body>
+<div class="container">
+    <h1>🏋️ Workout Type Classifier</h1>
+    <p>Enter session data – we predict workout type (Cardio, HIIT, Strength, Yoga) and give exercises.</p>
+    <form id="predictionForm">
+        <div class="form-row">
+            <div class="form-group"><label>Age</label><input type="number" id="age" value="30" required></div>
+            <div class="form-group"><label>Gender</label><select id="gender"><option>Male</option><option>Female</option></select></div>
+            <div class="form-group"><label>Weight (kg)</label><input type="number" id="weight" value="70" step="0.1" required></div>
+            <div class="form-group"><label>Height (m)</label><input type="number" id="height" value="1.70" step="0.01" required></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Max BPM</label><input type="number" id="max_bpm" value="170" required></div>
+            <div class="form-group"><label>Avg BPM</label><input type="number" id="avg_bpm" value="140" required></div>
+            <div class="form-group"><label>Resting BPM</label><input type="number" id="resting_bpm" value="65" required></div>
+            <div class="form-group"><label>Session Duration (hours)</label><input type="number" id="duration" value="1.0" step="0.1" required></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Calories Burned</label><input type="number" id="calories" value="800" required></div>
+            <div class="form-group"><label>Fat %</label><input type="number" id="fat" value="25" step="0.1" required></div>
+            <div class="form-group"><label>Water Intake (L)</label><input type="number" id="water" value="2.5" step="0.1" required></div>
+            <div class="form-group"><label>Workout Frequency (days/week)</label><input type="number" id="freq" value="3" required></div>
+        </div>
+        <button type="button" onclick="predict()">🔍 Predict Workout Type</button>
+    </form>
+    <div id="result" class="result"></div>
+    <div id="recommendations" class="recommendations" style="display:none;"></div>
+</div>
+<footer>Model: Decision Tree (96% accuracy) | GitHub Pages</footer>
+
+<script>
+const exerciseMap = {
+    "Cardio": ["🏃‍♂️ Running", "🚴‍♀️ Cycling", "🏊‍♂️ Swimming", "🚶‍♂️ Walking"],
+    "HIIT": ["⚡ Burpees", "⚡ Mountain climbers", "⚡ High knees", "⚡ Squat jumps"],
+    "Strength": ["🏋️‍♂️ Push-ups", "🏋️‍♀️ Squats", "🏋️‍♂️ Lunges", "🏋️‍♀️ Plank"],
+    "Yoga": ["🧘‍♀️ Sun Salutation", "🧘‍♂️ Downward Dog", "🧘‍♀️ Warrior pose", "🧘‍♂️ Tree pose"]
+};
+
+// Must exactly match feature_cols order in Python
+const featureNames = [
+    "Age", "Gender_Code", "Weight (kg)", "Height (m)", "Max_BPM", "Avg_BPM",
+    "Resting_BPM", "Session_Duration (hours)", "Calories_Burned", "Fat_Percentage",
+    "Water_Intake (liters)", "Workout_Frequency (days/week)", "BMI", "BMI_Class", "HR_Burn_Ratio"
+];
+
+function predict() {
+    // Read inputs
+    let age = parseFloat(document.getElementById('age').value);
+    let gender = document.getElementById('gender').value;
+    let weight = parseFloat(document.getElementById('weight').value);
+    let height = parseFloat(document.getElementById('height').value);
+    let max_bpm = parseFloat(document.getElementById('max_bpm').value);
+    let avg_bpm = parseFloat(document.getElementById('avg_bpm').value);
+    let resting_bpm = parseFloat(document.getElementById('resting_bpm').value);
+    let duration = parseFloat(document.getElementById('duration').value);
+    let calories = parseFloat(document.getElementById('calories').value);
+    let fat = parseFloat(document.getElementById('fat').value);
+    let water = parseFloat(document.getElementById('water').value);
+    let freq = parseFloat(document.getElementById('freq').value);
+
+    // Derived features
+    let bmi = weight / (height * height);
+    let bmi_class;
+    if (bmi < 18.5) bmi_class = 0;
+    else if (bmi < 25) bmi_class = 1;
+    else if (bmi < 30) bmi_class = 2;
+    else bmi_class = 3;
+    let gender_code = (gender === 'Male') ? 0 : 1;
+    let hr_burn_ratio = calories / (max_bpm + 1);
+
+    const features = [age, gender_code, weight, height, max_bpm, avg_bpm, resting_bpm, duration, calories, fat, water, freq, bmi, bmi_class, hr_burn_ratio];
+
+    // Debug: print tree and features to console
+    console.log("Tree root:", decisionTree);
+    console.log("Features array:", features);
+    console.log("Feature names:", featureNames);
+
+    // Traverse tree
+    let node = decisionTree;
+    let depth = 0;
+    while (node.class === undefined && depth < 200) {
+        let featName = node.feature;
+        let idx = featureNames.indexOf(featName);
+        if (idx === -1) {
+            console.error("Feature not found in featureNames:", featName);
+            document.getElementById('result').innerHTML = "<span class='error'>Error: Feature mismatch. Check console.</span>";
+            return;
+        }
+        let val = features[idx];
+        console.log(`Node: feature=${featName}, threshold=${node.threshold}, value=${val}`);
+        if (val <= node.threshold) {
+            node = node.left;
+        } else {
+            node = node.right;
+        }
+        depth++;
+    }
+
+    if (node.class === undefined) {
+        document.getElementById('result').innerHTML = "<span class='error'>Error: Could not reach leaf node.</span>";
+        return;
+    }
+
+    let workout = node.class;
+    let resultDiv = document.getElementById('result');
+    resultDiv.innerHTML = `✅ Recommended Workout Type: <strong>${workout}</strong>`;
+    resultDiv.className = `result workout-${workout}`;
+    
+    let exercises = exerciseMap[workout] || ["No specific exercises."];
+    let recDiv = document.getElementById('recommendations');
+    recDiv.innerHTML = `<h3>💪 Recommended Exercises for ${workout}:</h3><ul>${exercises.map(e => `<li>${e}</li>`).join('')}</ul>`;
+    recDiv.style.display = 'block';
+}
+</script>
+</body>
+</html>
